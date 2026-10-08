@@ -96,7 +96,7 @@ class UniverseManager:
         df["name"] = raw_df[name_col]
         df["sector"] = raw_df[sector_col] if sector_col else "Hang Seng Equity"
         df["sub_industry"] = "N/A"
-        df["index"] = "HKEX"
+        df["index"] = "HSI"
         return df
 
     def fetch_all_constituents(self, force_refresh: bool = False) -> pd.DataFrame:
