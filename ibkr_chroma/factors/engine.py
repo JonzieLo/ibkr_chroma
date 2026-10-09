@@ -19,8 +19,15 @@ class FactorEngine:
 
     @staticmethod
     def zscore_cross_section(
-        panel: pd.DataFrame
+        panel: pd.DataFrame,
+        cap_weights: Optional[pd.DataFrame] = None  # Market Cap Weights
     ) -> pd.DataFrame:
+        if cap_weights is not None:
+            norm_weights = cap_weights.reindex_like(panel).div(cap_weights.sum(axis=1),axis=0)
+            p_mean = (panel*norm_weights).sum(axis=1)
+            p_std = panel.std(axis=1).replace(0.0,np.nan)
+            return panel.sub(p_mean,axis=0).div(p_std,axis=0)
+
         p_mean = panel.mean(axis=1)
         p_std = panel.std(axis=1).replace(0.0,np.nan)
         return panel.sub(p_mean,axis=0).div(p_std,axis=0)
@@ -31,27 +38,24 @@ class FactorEngine:
         zscores: pd.DataFrame,
         sector_map: Dict[str, str]
     ) -> pd.DataFrame:
-        rows = []
-        ticker_sectors = pd.Series(sector_map).reindex(zscores.columns)
+        """De-means factor scores within each GICS sector on each date."""
+        sectors = pd.Series(sector_map).reindex(zscores.columns)
 
-        for date, row in zscores.iterrows():
-            df_slice = pd.DataFrame({"zscore": row, "sector": ticker_sectors}).dropna()
-            if len(df_slice) > 0:
-                sector_means = df_slice.groupby("sector")["zscore"].transform("mean")
-                df_slice["neutral_z"] = df_slice["zscore"] - sector_means
-                rows.append(df_slice["neutral_z"].reindex(zscores.columns))
-            else:
-                rows.append(pd.Series(np.nan, index=zscores.columns))
+        stacked = zscores.stack().rename("score").to_frame()
+        stacked["sector"] = stacked.index.get_level_values(1).map(sectors)
+        sector_means = stacked.groupby([stacked.index.get_level_values(0), "sector"])["score"].transform("mean")
+        stacked["neutral_score"] = stacked["score"] - sector_means
 
-        neutral_df = pd.DataFrame(rows, index=zscores.index)
-        return cls.zscore_cross_section(neutral_df)
+        neutral_panel = stacked["neutral_score"].unstack()
+        return cls.zscore_cross_section(neutral_panel)
 
     @classmethod
     def build_composite_signal(
         cls,
         factor_dict: Dict[str, pd.DataFrame],
         weights: Optional[Dict[str, float]] = None,
-        sector_map: Optional[Dict[str,str]] = None
+        sector_map: Optional[Dict[str,str]] = None,
+        cap_weights: Optional[pd.DataFrame] = None
     ) -> pd.DataFrame:
         processed_factors = []
         names = list(factor_dict.keys())
@@ -61,7 +65,7 @@ class FactorEngine:
         for name in names:
             raw = factor_dict[name]
             winsorized = cls.winsorize_cross_section(raw)
-            zscored = cls.zscore_cross_section(winsorized)
+            zscored = cls.zscore_cross_section(winsorized, cap_weights=cap_weights)
             if sector_map:
                 neutral = cls.sector_neutralize(zscored, sector_map)
             else:
@@ -71,7 +75,7 @@ class FactorEngine:
             processed_factors.append(weighted)
 
         composite = sum(processed_factors)
-        return cls.zscore_cross_section(composite)
+        return cls.zscore_cross_section(composite, cap_weights=cap_weights)
 
     @staticmethod
     def compute_forward_ic(
