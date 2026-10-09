@@ -45,7 +45,7 @@ class BarraRiskModel:
         w = cap_weights.reindex(valid.index).fillna(0.0)
         if w.sum() > 0:
             w = w / w.sum()
-            mean = np.dot(valid.values, w.values)
+            mean = valid.dot(w)
         else:
             mean = valid.mean()
 
@@ -90,21 +90,21 @@ class BarraRiskModel:
         """
         Runs Cross-Sectional Weighted Least Squares (WLS)
         """
-        aligned_tickers = returns.dropna().index.intersection(X.index)
-        y = returns.reindex(aligned_tickers).values
-        X_mat = X.reindex(aligned_tickers).values
-        caps = market_caps.reindex(aligned_tickers).values
+        aligned_tickers = returns.reindex(X.index).dropna().index
+        y = returns.reindex(aligned_tickers).to_numpy(dtype=np.float64)
+        X_mat = X.reindex(aligned_tickers).to_numpy(dtype=np.float64)
+        caps = market_caps.reindex(aligned_tickers).to_numpy(dtype=np.float64)
 
         weights = np.sqrt(np.maximum(1e-6, caps))
-        W = np.diag(weights)
 
         # WLS Solution: (X^T W X)^(-1) X^T W y
-        XtW = X_mat.T @ W
-        XtWX = XtW @ X_mat
+        X_weighted = X_mat * weights[:, np.newaxis]
+        XtWX = X_mat.T @ X_weighted
+        XtWy = X_weighted.T @ y
 
-        # Solve system with ridge regularization
+        # Solve system with Ridge regularization
         reg = 1e-6 * np.eye(XtWX.shape[0])
-        f_hat = np.linalg.solve(XtWX + reg, XtW @ y)
+        f_hat = np.linalg.solve(XtWX + reg, XtWy)
 
         u_hat = y - (X_mat @ f_hat)
 
@@ -156,18 +156,21 @@ class BarraRiskModel:
         if self.factor_covariance is None or self.specific_variances is None:
             self.compute_covariance_matrices()
 
+        assert self.factor_covariance is not None
+        assert self.specific_variances is not None
+
         tickers = portfolio_weights.index
-        w = portfolio_weights.values
+        w = portfolio_weights.to_numpy(dtype=np.float64)
 
         # Portfolio factor exposure: x_p = X^T * w (K x 1)
-        X_aligned = X.reindex(tickers).fillna(0.0).values
+        X_aligned = X.reindex(tickers).fillna(0.0).to_numpy(dtype=np.float64)
         x_p = X_aligned.T @ w  # Factor loading vector
 
-        F_mat = self.factor_covariance.values
+        F_mat = self.factor_covariance.to_numpy(dtype=np.float64)
         factor_variance = float(x_p.T @ F_mat @ x_p)
 
         # Specific variance: w^T * Delta * w
-        delta = self.specific_variances.reindex(tickers).fillna(self.specific_variances.median()).values
+        delta = self.specific_variances.reindex(tickers).fillna(self.specific_variances.median()).to_numpy(dtype=np.float64)
         specific_variance = float(np.sum((w ** 2) * delta))
 
         total_variance = factor_variance + specific_variance

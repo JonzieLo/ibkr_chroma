@@ -4,7 +4,7 @@ import pandas as pd
 
 from ibkr_chroma.data.client import IBKRClient
 from ibkr_chroma.data.storage import MarketDataStorage
-from ibkr_chroma.data.universe import get_universe_symbols
+from ibkr_chroma.data.universe import UniverseManager
 
 
 class DataPipeline:

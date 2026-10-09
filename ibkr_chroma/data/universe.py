@@ -13,6 +13,8 @@ class EquityMetadata:
     sector: str          # GICS Sector
     sub_industry: str    # GICS Sub-Industry
     index: str           # SP500, QQQ, etc.
+    currency: str
+    exchange: str
 
 
 class UniverseManager:
@@ -42,6 +44,8 @@ class UniverseManager:
         df["sector"] = raw_df["GICS Sector"]
         df["sub_industry"] = raw_df["GICS Sub-Industry"]
         df["index"] = "SP500"
+        df["currency"] = "USD"
+        df["exchange"] = "SMART"
         return df
     
     @staticmethod
@@ -70,6 +74,8 @@ class UniverseManager:
         df["sector"] = raw_df[sector_col] if sector_col else "Technology"
         df["sub_industry"] = raw_df[sub_col] if sub_col else "N/A"
         df["index"] = "QQQ"
+        df["currency"] = "USD"
+        df["exchange"] = "SMART"
         return df
 
     @staticmethod
@@ -97,6 +103,8 @@ class UniverseManager:
         df["sector"] = raw_df[sector_col] if sector_col else "Hang Seng Equity"
         df["sub_industry"] = "N/A"
         df["index"] = "HSI"
+        df["currency"] = "HKD"
+        df["exchange"] = "SEHK"
         return df
 
     def fetch_all_constituents(self, force_refresh: bool = False) -> pd.DataFrame:

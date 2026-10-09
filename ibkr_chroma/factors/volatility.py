@@ -30,23 +30,16 @@ def idiosyncrate_vol(
     stock_returns = closes.pct_change()
     bench_returns = benchmark_closes.pct_change()
 
-    bench_panel = pd.DataFrame(
-        np.tile(bench_returns.values[:, None], (1, stock_returns.shape[1])),
-        index=stock_returns.index,
-        columns=stock_returns.columns
+    rolling_cov = stock_returns.rolling(window).corr(bench_returns) * (
+        stock_returns.rolling(window).std().mul(bench_returns.rolling(window).std(), axis=0)
     )
-    rolling_cov = stock_returns.rolling(window).cov(bench_panel)
     rolling_var = bench_returns.rolling(window).var()
     betas = rolling_cov.div(rolling_var, axis=0)
 
     stock_var = stock_returns.rolling(window).var()
-    bench_var_panel = pd.DataFrame(
-        np.tile(rolling_var.values[:, None], (1, stock_returns.shape[1])),
-        index=stock_returns.index,
-        columns=stock_returns.columns
-    )
-    residual_var = (stock_var - (betas ** 2) * bench_var_panel).clip(lower=1e-12)
-    ivol = np.sqrt(residual_var * 252)
+    bench_var_term = betas.pow(2).mul(rolling_var, axis=0)
+    residual_var = (stock_var - bench_var_term).clip(lower=1e-12)
+    ivol = (residual_var * 252) ** 0.5
     return ivol.replace([np.inf, -np.inf], np.nan)
 
 

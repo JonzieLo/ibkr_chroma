@@ -22,8 +22,14 @@ class IBKRClient:
             self.ib.disconnect()
             print("Disconnected from IBKR.")
 
-    async def fetch_daily_bars(self, symbol: str, duration: str = "1 Y", bar_size: str = "1 day"):
-        contract = Stock(symbol, "SMART", "USD")
+    async def fetch_daily_bars(
+        self,
+        symbol: str,
+        exchange: str = "SMART",
+        currency: str = "USD"
+        duration: str = "1 Y",
+        Bar_size: str = "1 day"):
+        contract = Stock(symbol, exchange, currency)
         await self.ib.qualifyContractsAsync(contract)
         bars = await self.ib.reqHistoricalDataAsync(
             contract,
