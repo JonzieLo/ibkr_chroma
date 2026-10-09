@@ -9,7 +9,9 @@ indices = [m.index for m in full_universe]
 import pandas as pd
 print("\nIndex Breakdown:")
 print(pd.Series(indices).value_counts())
-hkex_symbols = um.get_symbols(indices=["HKEX"], top_n=10)
-print("\nTop 10 HKEX Tickers:", hkex_symbols)
+sp_symbols = um.get_symbols(indices=["SP500"], top_n=10)
+print("\nTop 10 S&P 500 Tickers:", sp_symbols)
+hkex_symbols = um.get_symbols(indices=["HSI"], top_n=10)
+print("\nTop 10 HSI Tickers:", hkex_symbols)
 qqq_symbols = um.get_symbols(indices=["QQQ"], top_n=10)
 print("\nTop 10 NASDAQ-100 Tickers:", qqq_symbols)

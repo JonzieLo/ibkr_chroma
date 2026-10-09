@@ -26,9 +26,10 @@ class IBKRClient:
         self,
         symbol: str,
         exchange: str = "SMART",
-        currency: str = "USD"
+        currency: str = "USD",
         duration: str = "1 Y",
-        Bar_size: str = "1 day"):
+        bar_size: str = "1 day"
+    ):
         contract = Stock(symbol, exchange, currency)
         await self.ib.qualifyContractsAsync(contract)
         bars = await self.ib.reqHistoricalDataAsync(

@@ -9,10 +9,10 @@ Features:
 """
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Optional, Tuple
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import ElasticNetCV, RidgeCV
+from sklearn.linear_model import ElasticNetCV
 
 @dataclass(frozen=True)
 class PCAResults:
@@ -54,7 +54,7 @@ class PCAFactorModel:
         self,
         returns: pd.DataFrame
     ):
-        clean_returns = returns.dropna(axis=1, how = "any")
+        clean_returns = returns.ffill().dropna(axis=1, thresh=int(len(returns) * 0.80)).dropna(axis=0)
         T,N = clean_returns.shape
 
         if N < self.min_factors or T < N:
@@ -113,3 +113,47 @@ class PCAFactorModel:
             eigenvalues=eigenvalues,
             marchenko_pastur_limit=mp_limit,
         )
+
+
+class SectorETFFactorModel:
+    """
+    Implements Section 3 of Avellaneda & Lee (2010): The ETF Approach.
+    Uses ElasticNet / Ridge regularized regression of stocks on sector ETFs to avoid multicollinearity and enforce economic sparsity.
+    """
+    def __init__(self, l1_ratio: float = 0.5):
+        self.l1_ratio = l1_ratio
+
+    def fit_residuals(
+        self,
+        stock_returns: pd.DataFrame,
+        etf_returns: pd.DataFrame,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Regresses each stock return on liquid Sector ETFs using ElasticNet.
+        R_stock = alpha + beta_SPY * R_SPY + Sum beta_sector * R_sector + epsilon
+
+        Returns:
+        - betas: Sparse factor exposures
+        - residuals: Idiosyncratic residual returns
+        """
+        aligned_etfs = etf_returns.reindex(stock_returns.index).dropna()
+        aligned_stocks = stock_returns.reindex(aligned_etfs.index).dropna(axis=1)
+
+        residuals_dict = {}
+        betas_dict = {}
+
+        for col in aligned_stocks.columns:
+            y = aligned_stocks[col].values
+            X = aligned_etfs.values
+
+            model = ElasticNetCV(l1_ratio=self.l1_ratio, cv=3, random_state=42)
+            model.fit(X, y)
+
+            pred = model.predict(X)
+            residuals_dict[col] = y - pred
+            betas_dict[col] = model.coef_
+
+        residuals_df = pd.DataFrame(residuals_dict, index=aligned_etfs.index)
+        betas_df = pd.DataFrame(betas_dict, index=aligned_etfs.columns).T
+
+        return betas_df, residuals_df

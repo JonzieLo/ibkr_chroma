@@ -154,9 +154,15 @@ class UniverseManager:
                 sector=row["sector"],
                 sub_industry=row["sub_industry"],
                 index=row["index"],
+                currency=row["currency"],
+                exchange=row["exchange"]
             )
             for _, row in df.iterrows()
         ]
 
     def get_symbols(self, indices: Optional[List[str]] = None, top_n: Optional[int] = None) -> List[str]:
         return [meta.symbol for meta in self.get_universe(indices=indices, top_n=top_n)]
+
+    def get_sector_map(self, indices: Optional[List[str]] = None, top_n: Optional[int] = None) -> Dict[str, str]:
+        universe = self.get_universe(indices=indices, top_n=top_n)
+        return {meta.symbol: meta.sector for meta in universe}
