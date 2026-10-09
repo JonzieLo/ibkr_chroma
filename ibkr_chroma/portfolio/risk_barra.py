@@ -10,8 +10,6 @@ Implements:
 6. Full Portfolio Risk Decomposition (Systematic vs. Specific Variance).
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
 import numpy as np
@@ -56,7 +54,7 @@ class BarraRiskModel:
             return values * 0.0
 
         z = (values - mean) / std
-        return z.clip(lower=limit, upper=(1-limit))
+        return z.clip(lower=-limit, upper=limit)
 
     @classmethod
     def build_exposure_matrix(

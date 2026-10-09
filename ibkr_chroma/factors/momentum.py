@@ -41,7 +41,11 @@ def momentum_residual(
     bench_returns = benchmark_closes.pct_change()
 
     aligned_bench = bench_returns.reindex(stock_returns.index)
-    rolling_cov = stock_returns.rolling(lookback).cov(aligned_bench)
+    bench_panel = pd.DataFrame(
+        np.tile(aligned_bench.values[:, None], (1, stock_returns.shape[1])),
+        index=stock_returns.index,
+        columns=stock_returns.columns)
+    rolling_cov = stock_returns.rolling(lookback).cov(bench_panel)
     rolling_var = stock_returns.rolling(lookback).var()
     betas = rolling_cov.div(rolling_var, axis=0)
 

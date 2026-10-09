@@ -34,6 +34,6 @@ class DataPipeline:
                 closes[s] = df["close"]
                 volumes[s] = df["volume"]
 
-        closes_df = pd.DataFrame(closes).sort_index().ffill().dropna()
-        volumes_df = pd.DataFrame(volumes).sort_index().ffill().dropna()
+        closes_df = pd.DataFrame(closes).sort_index().ffill().dropna(how="all")
+        volumes_df = pd.DataFrame(volumes).sort_index().ffill().dropna(how="all")
         return closes_df, volumes_df
