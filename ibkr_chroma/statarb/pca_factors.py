@@ -13,6 +13,9 @@ from typing import Optional, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import ElasticNetCV
+from sklearn.exceptions import ConvergenceWarning
+import warnings
+
 
 @dataclass(frozen=True)
 class PCAResults:
@@ -142,16 +145,19 @@ class SectorETFFactorModel:
         residuals_dict = {}
         betas_dict = {}
 
-        for col in aligned_stocks.columns:
-            y = aligned_stocks[col].values
-            X = aligned_etfs.values
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=ConvergenceWarning)
+            for col in aligned_stocks.columns:
+                y = aligned_stocks[col].values
+                X = aligned_etfs.values
 
-            model = ElasticNetCV(l1_ratio=self.l1_ratio, cv=3, random_state=42)
-            model.fit(X, y)
+                model = ElasticNetCV(l1_ratio=self.l1_ratio, cv=3, max_iter=2500, tol=1e-3, random_state=42)
+                model.fit(X, y)
 
-            pred = model.predict(X)
-            residuals_dict[col] = y - pred
-            betas_dict[col] = model.coef_
+                pred = model.predict(X)
+                residuals_dict[col] = y - pred
+                betas_dict[col] = model.coef_
+
 
         residuals_df = pd.DataFrame(residuals_dict, index=aligned_etfs.index)
         betas_df = pd.DataFrame(betas_dict, index=aligned_etfs.columns).T

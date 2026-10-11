@@ -16,6 +16,11 @@ class EquityMetadata:
     currency: str
     exchange: str
 
+INDEX_BENCHMARKS: Dict[str, EquityMetadata] = {
+    "SP500": EquityMetadata("SPY", "SPDR S&P 500 ETF", "Index", "ETF", "SP500", "USD", "SMART"),
+    "QQQ":   EquityMetadata("QQQ", "Invesco QQQ Trust", "Index", "ETF", "QQQ", "USD", "SMART"),
+    "HSI":   EquityMetadata("2800", "Tracker Fund of Hong Kong", "Index", "ETF", "HSI", "HKD", "SEHK"),
+}
 
 class UniverseManager:
     def __init__(self, cache_dir: str = "data/universe"):
@@ -166,3 +171,6 @@ class UniverseManager:
     def get_sector_map(self, indices: Optional[List[str]] = None, top_n: Optional[int] = None) -> Dict[str, str]:
         universe = self.get_universe(indices=indices, top_n=top_n)
         return {meta.symbol: meta.sector for meta in universe}
+    
+    def get_benchmark_etf(self, index_name: str) -> Optional[EquityMetadata]:
+        return INDEX_BENCHMARKS.get(index_name.upper())

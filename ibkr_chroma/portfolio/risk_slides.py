@@ -51,26 +51,29 @@ class RiskSlidesEngine:
 
     def generate_factor_shock_slides(
         self,
-        portfolio_factor_exposures: pd.Series,  # x_p = w^T * X
-        factor_std_annualized: pd.Series,       # sqrt(diag(F_cov))
+        portfolio_factor_exposures: pd.Series,
+        factor_std_annualized: pd.Series,  # Daily sigma = annualized / sqrt(252)
         portfolio_nav_usd: float = 10_000_000.0,
     ) -> pd.DataFrame:
         """
-        Stress-tests specific Barra Style Factor crashes:
-        PnL = Portfolio_Loading * Factor_Shock * NAV
+        Simulate market shocks by empirical factor volatility (3-sigma shocks).
         """
-        # Define institutional stress scenarios
+        daily_factor_stds = factor_std_annualized / np.sqrt(252.0)
+
+        # Scenarios defined in statistical sigmas (-3 sigma crash, +2 sigma rally)
         scenarios = [
-            ("Quant Quake (Momentum Crash)", "Momentum", -0.08, "Momentum plunges -8% (Aug 2007 unwind)"),
-            ("Vol Spike / Flight to Quality", "LowVol", -0.05, "Low-Vol anomaly breaks as vol surges"),
-            ("Value Rotation / Growth Dump", "Momentum", -0.04, "Rotational reversal into value laggards"),
-            ("Tech / Mega-Cap Rally", "Momentum", +0.05, "Narrow breadth mega-cap momentum surge"),
+            ("Quant Quake (Momentum Crash)", "Momentum", -3.0, "3-sigma momentum unwind"),
+            ("Vol Spike / Low-Vol Inversion", "LowVol", -2.5, "2.5-sigma low-vol anomaly break"),
+            ("Value Rotation / Growth Dump", "Momentum", -2.0, "2-sigma rotational reversal into laggards"),
+            ("Mega-Cap Momentum Rally", "Momentum", +2.5, "2.5-sigma narrow breadth rally"),
         ]
 
         records = []
-        for name, factor_name, daily_shock, desc in scenarios:
-            if factor_name in portfolio_factor_exposures.index:
+        for name, factor_name, sigma_multiplier, desc in scenarios:
+            if factor_name in portfolio_factor_exposures.index and factor_name in daily_factor_stds.index:
                 loading = portfolio_factor_exposures[factor_name]
+                f_vol = daily_factor_stds[factor_name]
+                daily_shock = sigma_multiplier * f_vol
                 exp_ret_pct = loading * daily_shock
                 exp_pnl_usd = exp_ret_pct * portfolio_nav_usd
 
@@ -78,7 +81,7 @@ class RiskSlidesEngine:
                     "Crisis Scenario": name,
                     "Target Factor": factor_name,
                     "Loading (x_p)": f"{loading:+.3f}",
-                    "Factor Shock": f"{daily_shock:+.1%}",
+                    "Empirical Shock": f"{daily_shock:+.2%}",
                     "Expected PnL ($)": f"${exp_pnl_usd:+,.2f}",
                     "Description": desc,
                 })

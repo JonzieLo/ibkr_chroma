@@ -19,6 +19,10 @@ CORE_SECTOR_ETFS = [
     EquityMetadata("XLU",   "Utilities Select Sector",      "Utilities",                "ETF",      "SP500", "USD", "SMART"),
     EquityMetadata("XLB",   "Materials Select Sector",      "Materials",                "ETF",      "SP500", "USD", "SMART"),
     EquityMetadata("XLRE",  "Real Estate Select Sector",    "Real Estate",              "ETF",      "SP500", "USD", "SMART"),
+    EquityMetadata("QQQ",   "Invesco QQQ Trust",            "Index",                    "ETF",      "QQQ",   "USD", "SMART"),
+    EquityMetadata("IWM",   "iShares Russell 2000 ETF",     "Index",                    "ETF",      "IWM",   "USD", "SMART"),
+    EquityMetadata("2800",  "Tracker Fund of Hong Kong",    "Index",                    "ETF",      "HSI",   "HKD", "SEHK"),
+    EquityMetadata("3033",  "CSOP Hang Seng TECH Index ETF","Technology",               "ETF",      "HSTECH","HKD", "SEHK"),
 ]
 
 
@@ -30,6 +34,7 @@ class DataPipeline:
     async def sync_universe(
         self,
         universe: Union[List[EquityMetadata], List[str]],
+        index: str = "SP500",
         duration: str = "2 Y",
         bar_size: str = "1 day",
         sync_etfs: bool = True,
@@ -37,13 +42,15 @@ class DataPipeline:
         targets: List[EquityMetadata] = []
         for item in universe:
             if isinstance(item, str):
-                targets.append(EquityMetadata(item, item, "Equity", "N/A", "SP500", "USD", "SMART"))
+                currency = "HKD" if index == "HSI" else "USD"
+                exchange = "SEHK" if index == "HSI" else "SMART"
+                targets.append(EquityMetadata(item, item, "Equity", "N/A", index, currency, exchange))
             else:
                 targets.append(item)
 
-        # Include Sector ETFs for US indices
-        if sync_etfs and any(t.index in ["SP500", "QQQ"] for t in targets):
-            for etf in CORE_SECTOR_ETFS:
+        if sync_etfs:
+            matching_etfs = [etf for etf in CORE_SECTOR_ETFS if etf.index == index]
+            for etf in matching_etfs:
                 if not any(t.symbol == etf.symbol for t in targets):
                     targets.append(etf)
 

@@ -149,7 +149,7 @@ def main():
         slippage_bps = args.slippage_bps
 
     um = UniverseManager()
-    symbols = um.get_symbols(indices=["SP500"], top_n=args.top_n)
+    symbols = um.get_symbols(indices=[args.index], top_n=args.top_n)
     storage = MarketDataStorage()
     pipeline = DataPipeline(storage=storage)
 

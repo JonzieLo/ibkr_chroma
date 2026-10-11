@@ -28,9 +28,9 @@ async def main():
 
     try:
         pipeline = DataPipeline(client=client)
-        # Sync stocks + sector ETFs (for US)
-        sync_etfs = (args.index in ["SP500", "QQQ"])
-        await pipeline.sync_universe(universe, duration=args.duration, bar_size="1 day", sync_etfs=sync_etfs)
+        # Sync stocks + sector ETFs
+        sync_etfs = (args.index in ["SP500", "QQQ", "HSI"])
+        await pipeline.sync_universe(universe, index = args.index, duration=args.duration, bar_size="1 day", sync_etfs=sync_etfs)
     finally:
         await client.disconnect()
 

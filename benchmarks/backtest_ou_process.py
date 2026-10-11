@@ -28,7 +28,7 @@ def test_stationarity_quick_adf(series: pd.Series) -> Tuple[float, float]:
     """
     clean = series.dropna().values
     if len(clean) < 30:
-        return 1.0
+        return 0.0, 1.0
     dx = np.diff(clean)
     x_prev = clean[:-1]
     

@@ -1,3 +1,4 @@
+import argparse
 import numpy as np
 import pandas as pd
 
@@ -13,24 +14,29 @@ from ibkr_chroma.portfolio.risk_slides import RiskSlidesEngine
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Run Barra Portfolio Optimization.")
+    parser.add_argument("--index", default="SP500", choices=["SP500", "QQQ", "HSI"], help="Target index")
+    parser.add_argument("--top-n", type=int, default=50, help="Universe size (default: 50)")
+    args = parser.parse_args()
+
     um = UniverseManager()
-    symbols = um.get_symbols(indices=["SP500"], top_n=50)
-    sector_map = um.get_sector_map(indices=["SP500"], top_n=50)
+    symbols = um.get_symbols(indices=[args.index], top_n=args.top_n)
+    sector_map = um.get_sector_map(indices=[args.index], top_n=args.top_n)
     storage = MarketDataStorage()
     pipeline = DataPipeline(storage=storage)
 
-    # Load real S&P 500 cached data + SPY Benchmark
-    closes, _ = pipeline.build_feature_panels(symbols + ["SPY"], bar_size="1_day")
+    bench_symbol = "SPY" if args.index == "SP500" else ("QQQ" if args.index == "QQQ" else "2800")
+    closes, _ = pipeline.build_feature_panels(symbols + [bench_symbol], bar_size="1_day")
     returns = closes.pct_change().dropna(how="all")
 
-    spy_returns = returns["SPY"]
-    stock_returns = returns.drop(columns=["SPY"])
+    bench_returns = returns[bench_symbol]
+    stock_returns = returns.drop(columns=[bench_symbol])
     stock_symbols = [s for s in symbols if s in stock_returns.columns]
     stock_returns = stock_returns[stock_symbols]
 
     # Compute Historical 63-Day Market Betas
-    rolling_cov = stock_returns.rolling(63).cov(spy_returns)
-    rolling_var = spy_returns.rolling(63).var()
+    rolling_cov = stock_returns.rolling(63).cov(bench_returns)
+    rolling_var = bench_returns.rolling(63).var()
     real_betas = rolling_cov.iloc[-1].div(rolling_var.iloc[-1]).fillna(1.0)
 
     # Compute Composite Alpha
