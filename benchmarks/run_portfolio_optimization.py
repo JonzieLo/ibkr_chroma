@@ -1,6 +1,7 @@
 import argparse
 import numpy as np
 import pandas as pd
+from pathlib import Path
 
 from ibkr_chroma.data.pipeline import DataPipeline
 from ibkr_chroma.data.storage import MarketDataStorage
@@ -50,7 +51,12 @@ def main():
     # Calibrate Barra Risk Model
     active_stocks = latest_alpha.index
     barra = BarraRiskModel(half_life_days=63)
-    caps = pd.Series(np.random.uniform(20e9, 2e12, len(active_stocks)), index=active_stocks)
+    caps_file = "data/universe/market_caps.parquet"
+    if Path(caps_file).exists():
+        caps_df = pd.read_parquet(caps_file)
+        caps = caps_df["market_cap"].reindex(active_stocks).fillna(caps_df["market_cap"].median())
+    else:
+        raise FileNotFoundError("market_caps.parquet missing! Run `sync_market_cap` first.")
     sector_series = pd.Series(sector_map).reindex(active_stocks)
     style_dict = {
         "Momentum": f_mom.iloc[-1].reindex(active_stocks),

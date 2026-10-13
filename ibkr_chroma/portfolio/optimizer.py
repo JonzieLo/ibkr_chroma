@@ -67,32 +67,70 @@ class BarraPortfolioOptimizer:
         w_prev = current_weights.reindex(tickers).fillna(0.0).values if current_weights is not None else np.zeros(N)
         b_vec = betas.reindex(tickers).fillna(1.0).values if betas is not None else np.ones(N)
 
+        # Row 0: Dollar Neutrality (Sum(w) = 0)
+        # Row 1: Beta Neutrality (Sum(w * beta) = 0)
+        # Rows 2..J: Sector Neutrality (Sum(w_sector) = 0)
+        style_col_names = ["Momentum", "LowVol", "FiftyTwoWeekHigh", "Reversal"]
+        sector_indices = [
+            i for i, col in enumerate(exposure_matrix.columns) if col not in style_col_names
+        ]
+
+        eq_rows = [np.ones(N), b_vec]
+        for s_idx in sector_indices:
+            eq_rows.append(X[:, s_idx])
+
+        A_eq = np.array(eq_rows)  # Shape: (M_eq x N)
+        M_eq = A_eq.shape[0]
+
+        q_high = np.quantile(aligned_alpha, 0.80)
+        q_low = np.quantile(aligned_alpha, 0.20)
+        w_raw = np.zeros(N)
+        w_raw[aligned_alpha >= q_high] = +1.0
+        w_raw[aligned_alpha <= q_low] = -1.0
+
+        # Project w_raw onto  nullspace of A_eq
+        # w_proj = w - A^T (A A^T)^(-1) A w
+        try:
+            proj_kernel = np.linalg.solve(A_eq @ A_eq.T + 1e-8 * np.eye(M_eq), A_eq @ w_raw)
+            w0 = w_raw - A_eq.T @ proj_kernel
+            # Rescale to target gross leverage
+            if np.sum(np.abs(w0)) > 0:
+                w0 = w0 * (self.gross_leverage / np.sum(np.abs(w0)))
+        except Exception:
+            w0 = np.zeros(N)
+
+        gamma_turnover = self.turnover_penalty if current_weights is not None else 0.0
+
         def objective(w: np.ndarray) -> float:
             port_alpha = np.dot(w, aligned_alpha)
             port_var = w.T @ Sigma @ w
-            turnover_cost = self.turnover_penalty * np.sum(np.abs(w - w_prev))
-            return float(-port_alpha + (self.risk_aversion / 2.0) * port_var + turnover_cost)
+            turnover_sq = 0.5 * gamma_turnover * np.sum((w - w_prev) ** 2)
+            return float(-port_alpha + (self.risk_aversion / 2.0) * port_var + turnover_sq)
 
         def objective_grad(w: np.ndarray) -> np.ndarray:
-            return -aligned_alpha + self.risk_aversion * (Sigma @ w)
+            return -aligned_alpha + self.risk_aversion * (Sigma @ w) + gamma_turnover * (w - w_prev)
+
 
         constraints = [
-            {"type": "eq", "fun": lambda w: np.sum(w)},                                     # Dollar Neutral: Sum(w) = 0
+            {"type": "eq", "fun": lambda w: A_eq @ w, "jac": lambda w: A_eq},               # Equality: A_eq @ w = 0
             {"type": "ineq", "fun": lambda w: self.gross_leverage - np.sum(np.abs(w))},     # Leverage: Sum(|w|) <= 2.0
-            {"type": "eq", "fun": lambda w: np.dot(w, b_vec)},                              # Beta Neutral: w^T * beta = 0
         ]
 
         # Sector Neutrality constraints (Industry columns)
-        style_col_names = ["Momentum", "LowVol", "FiftyTwoWeekHigh", "Reversal"]
-        for col_idx, col_name in enumerate(exposure_matrix.columns):
-            factor_col = X[:, col_idx]
-            if col_name not in style_col_names:
-                constraints.append({"type": "eq", "fun": lambda w, c=factor_col: np.dot(w, c)})
-            else:
-                # Style factor exposure bounds
-                # |w^T * X_style| <= max_style_exposure
-                constraints.append({"type": "ineq", "fun": lambda w, c=factor_col: self.max_style_exposure - np.dot(w, c)})
-                constraints.append({"type": "ineq", "fun": lambda w, c=factor_col: self.max_style_exposure + np.dot(w, c)})
+        for col_name in style_col_names:
+            if col_name in exposure_matrix.columns:
+                c_idx = list(exposure_matrix.columns).index(col_name)
+                style_col = X[:, c_idx]
+                constraints.append({
+                    "type": "ineq",
+                    "fun": lambda w, c=style_col: self.max_style_exposure - np.dot(w, c),
+                    "jac": lambda w, c=style_col: -c,
+                })
+                constraints.append({
+                    "type": "ineq",
+                    "fun": lambda w, c=style_col: self.max_style_exposure + np.dot(w, c),
+                    "jac": lambda w, c=style_col: c,
+                })
 
         bounds = [(-self.max_position_weight, self.max_position_weight) for _ in range(N)]
 
@@ -110,7 +148,7 @@ class BarraPortfolioOptimizer:
             jac=objective_grad,
             bounds=bounds,
             constraints=constraints,
-            options={"maxiter": 350, "ftol": 1e-7},
+            options={"maxiter": 2500, "ftol": 1e-5},
         )
 
         w_opt = pd.Series(res.x, index=tickers)

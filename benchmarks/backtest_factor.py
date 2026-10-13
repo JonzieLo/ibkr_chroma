@@ -12,6 +12,7 @@ import argparse
 import math
 import numpy as np
 import pandas as pd
+from pathlib import Path
 
 from ibkr_chroma.data.pipeline import DataPipeline
 from ibkr_chroma.data.storage import MarketDataStorage
@@ -73,7 +74,17 @@ def main():
 
     # 3. Form Composite Signal (with Sector Neutralization)
     weights = {"12-1M Momentum": 0.25, "52-Week High": 0.25, "5-Day Reversal": 0.25, "Low Realized Vol": 0.25}
-    composite_alpha = FactorEngine.build_composite_signal(factors, weights=weights, sector_map=sector_map)
+    caps_file = "data/universe/market_caps.parquet"
+    if Path(caps_file).exists():
+        caps_df = pd.read_parquet(caps_file)
+        cap_weights_panel = pd.DataFrame(
+            np.tile(caps_df["market_cap"].reindex(closes.columns).values, (len(closes), 1)),
+            index=closes.index,
+            columns=closes.columns,
+        )
+    else:
+        cap_weights_panel = None
+    composite_alpha = FactorEngine.build_composite_signal(factors, weights=weights, sector_map=sector_map, cap_weights=cap_weights_panel)
 
     # 4. Quantile Monotonicity (Q1 to Q5)
     print("\n--- 2. QUANTILE RETURNS MONOTONICITY (5-Day Forward Holding) ---")
