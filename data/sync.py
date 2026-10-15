@@ -9,7 +9,7 @@ from ibkr_chroma.data.universe import UniverseManager
 async def main():
     parser = argparse.ArgumentParser(description="Sync IBKR historical market data to local Parquet.")
     parser.add_argument("--index", default="SP500", choices=["SP500", "QQQ", "HSI"], help="Index universe to sync")
-    parser.add_argument("--top-n", type=int, default=50, help="Number of constituents to sync (default: 50)")
+    parser.add_argument("--top-n", type=int, default=500, help="Number of constituents to sync (default: 50)")
     parser.add_argument("--duration", default="2 Y", help="Lookback duration (e.g. '1 Y', '2 Y')")
     parser.add_argument("--port", type=int, default=7497, help="TWS API port (default: 7497)")
     parser.add_argument("--client-id", type=int, default=10, help="API Client ID")

@@ -11,6 +11,7 @@ import argparse
 import math
 import numpy as np
 import pandas as pd
+from typing import Tuple
 from scipy import stats
 
 from ibkr_chroma.data.pipeline import DataPipeline

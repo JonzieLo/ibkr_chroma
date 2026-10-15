@@ -19,6 +19,7 @@ from ibkr_chroma.statarb.pca_factors import SectorETFFactorModel
 
 async def main():
     parser = argparse.ArgumentParser(description="Live Paper Rebalancing Orchestrator.")
+    parser.add_argument("--index", default="SP500", choices=["SP500", "QQQ", "HSI"], help="Target index")
     parser.add_argument("--port", type=int, default=4002, help="IB Gateway Port (4002 paper, 7497 TWS)")
     parser.add_argument("--client-id", type=int, default=20, help="Client ID")
     parser.add_argument("--top-n", type=int, default=50, help="Universe size")
@@ -43,7 +44,7 @@ async def main():
         print(f"Open Positions Count:  {len(account.current_positions)}")
 
         um = UniverseManager()
-        symbols = um.get_symbols(indices=["SP500"], top_n=args.top_n)
+        symbols = um.get_symbols(indices=[args.index], top_n=args.top_n)
         storage = MarketDataStorage()
         pipeline = DataPipeline(storage=storage)
 

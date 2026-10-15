@@ -64,11 +64,12 @@ class DispersionCorrelationModel:
         """
         Computes the rolling weighted average realized pairwise correlation across the constituent basket.
         """
-        valid = constituent_returns.dropna(axis=1).columns.intersection(constituent_weights.index)
+        returns_slice = constituent_returns.iloc[-window:].dropna(how="all")
+        valid_cols = returns_slice.columns[returns_slice.notna().sum() >= int(window *0.7)]
+        valid = valid_cols.intersection(constituent_weights.index)
         if len(valid) < 5:
             return np.nan
 
-        returns_slice = constituent_returns[valid].iloc[-window:]
         w = constituent_weights.loc[valid].values
         w = w / np.sum(w)
 

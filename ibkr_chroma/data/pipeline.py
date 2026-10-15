@@ -22,7 +22,8 @@ CORE_SECTOR_ETFS = [
     EquityMetadata("QQQ",   "Invesco QQQ Trust",            "Index",                    "ETF",      "QQQ",   "USD", "SMART"),
     EquityMetadata("IWM",   "iShares Russell 2000 ETF",     "Index",                    "ETF",      "IWM",   "USD", "SMART"),
     EquityMetadata("2800",  "Tracker Fund of Hong Kong",    "Index",                    "ETF",      "HSI",   "HKD", "SEHK"),
-    EquityMetadata("3033",  "CSOP Hang Seng TECH Index ETF","Technology",               "ETF",      "HSTECH","HKD", "SEHK"),
+    EquityMetadata("3033",  "CSOP Hang Seng TECH Index ETF","Technology",               "ETF",      "HSI",   "HKD", "SEHK"),
+    EquityMetadata("2828",  "Hang Seng China Enterprises ETF", "China SOE",             "ETF",      "HSI",   "HKD", "SEHK"),
 ]
 
 
@@ -58,7 +59,7 @@ class DataPipeline:
         print(f"Syncing {total} instruments to Parquet storage...")
 
         for idx, item in enumerate(targets, 1):
-            if not self.storage.has_data(item.symbol, bar_size):
+            # if not self.storage.has_data(item.symbol, bar_size):
                 print(f"[{idx}/{total}] Fetching {item.symbol} ({item.exchange}/{item.currency}) from IBKR...")
                 try:
                     df = await self.client.fetch_daily_bars(
@@ -75,8 +76,8 @@ class DataPipeline:
                 except Exception as e:
                     print(f"  [ERROR] Failed to fetch {item.symbol}: {e}")
                 await asyncio.sleep(0.5)
-            else:
-                print(f"[{idx}/{total}] Cached: {item.symbol} already exists on disk.")
+            # else:
+            #     print(f"[{idx}/{total}] Cached: {item.symbol} already exists on disk.")
         print("Done.")
 
 

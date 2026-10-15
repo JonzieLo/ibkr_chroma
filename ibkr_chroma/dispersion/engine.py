@@ -128,3 +128,41 @@ class DispersionTradeEngine:
             correlation_spread=correlation_spread,
             initial_margin_usd=est_margin,
         )
+
+    def calculate_integer_dispersion_capital(structure: DispersionTradeStructure) -> dict:
+        """
+        Back-calculates the minimum integer scaling factor and capital needed to eliminate decimal contracts in an index dispersion trade.
+        """
+        # Find minimum constituent contract size
+        min_contracts = min(leg.contracts for leg in structure.constituent_legs if leg.contracts > 0)
+        
+        # Scale multiplier so smallest leg equals at least 1 whole contract
+        scale_multiplier = int(np.ceil(1.0 / min_contracts))
+        
+        scaled_index_contracts = int(round(structure.index_leg.contracts * scale_multiplier))
+        scaled_margin_usd = structure.initial_margin_usd * scale_multiplier
+        
+        constituent_plans = []
+        total_debit_usd = 0.0
+        
+        for leg in structure.constituent_legs:
+            int_contracts = int(round(leg.contracts * scale_multiplier))
+            leg_cost = int_contracts * leg.straddle_price * 100.0
+            total_debit_usd += leg_cost
+            constituent_plans.append({
+                "symbol": leg.symbol,
+                "int_contracts": int_contracts,
+                "cost_usd": leg_cost,
+                "dollar_vega": leg.dollar_vega * scale_multiplier
+            })
+            
+        total_capital_required = scaled_margin_usd + total_debit_usd
+        
+        return {
+            "scale_multiplier": scale_multiplier,
+            "scaled_index_contracts": scaled_index_contracts,
+            "short_index_margin_usd": scaled_margin_usd,
+            "long_basket_debit_usd": total_debit_usd,
+            "total_capital_required_usd": total_capital_required,
+            "constituent_legs": constituent_plans,
+        }

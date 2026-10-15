@@ -159,7 +159,7 @@ def main():
         return
 
     stock_returns = stock_prices.pct_change().dropna(how="all")
-    if args.index in ["SP500", "QQQ"]:
+    if args.index in ["SP500", "QQQ", "HSI"]:
         etf_returns = pipeline.build_etf_panel(bar_size="1_day")
         if not etf_returns.empty:
             common = stock_returns.index.intersection(etf_returns.index)

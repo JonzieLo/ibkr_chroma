@@ -1,9 +1,11 @@
 """
-CHROMA: Equity Index Dispersion Trading Benchmark & Correlation Gap Scanner.
+Historical Equity Index Dispersion P&L Backtest.
+Simulates daily Delta-Hedged Straddle Cash Flows: Gamma Gains vs Theta Decay.
 """
-from __future__ import annotations
 
 import argparse
+import math
+from pathlib import Path
 import numpy as np
 import pandas as pd
 
@@ -11,126 +13,119 @@ from ibkr_chroma.data.pipeline import DataPipeline
 from ibkr_chroma.data.storage import MarketDataStorage
 from ibkr_chroma.data.universe import UniverseManager
 from ibkr_chroma.dispersion.correlation import DispersionCorrelationModel
-from ibkr_chroma.dispersion.engine import DispersionTradeEngine
+from ibkr_chroma.dispersion.pricing import BSMDividendModel, BinomialModel
+
+
+def load_real_iv_panels(symbols: list[str]) -> pd.DataFrame:
+    iv_dict = {}
+    for s in symbols:
+        p = Path(f"data/parquet/{s.upper()}_iv_1_day.parquet")
+        if p.exists():
+            df = pd.read_parquet(p)
+            iv_dict[s] = df["close"]  # Real ATM IV
+    if not iv_dict:
+        return pd.DataFrame()
+    return pd.DataFrame(iv_dict).sort_index().ffill().dropna(how="all")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run Equity Index Dispersion Correlation Scanner.")
-    parser.add_argument("--index", default="SP500", choices=["SP500", "SPY", "QQQ", "HSI"], help="Target index")
-    parser.add_argument("--top-n", type=int, default=10, help="Number of constituent basket stocks (default: 10)")
-    parser.add_argument("--window", type=int, default=63, help="Rolling correlation window in days")
+    parser = argparse.ArgumentParser(description="Run Historical Dispersion P&L Backtest.")
+    parser.add_argument("--index", default="HSI", choices=["SP500", "QQQ", "HSI"], help="Index universe")
+    parser.add_argument("--top-n", type=int, default=10, help="Constituent basket size")
+    parser.add_argument("--min-spread", type=float, default=0.08, help="Min correlation spread to enter")
     args = parser.parse_args()
 
-    if args.index in ["SP500", "SPY"]:
-        target_universe = "SP500"
-        index_ticker = "SPY"
-    elif args.index == "QQQ":
-        target_universe = "QQQ"
-        index_ticker = "QQQ"
-    else:  # HSI
-        target_universe = "HSI"
-        index_ticker = "2800"
-
+    index_ticker = "SPY" if args.index == "SP500" else ("QQQ" if args.index == "QQQ" else "2800")
     um = UniverseManager()
+    symbols = um.get_symbols(indices=[args.index], top_n=args.top_n)
+
     storage = MarketDataStorage()
     pipeline = DataPipeline(storage=storage)
 
-    # Identify True Market Leaders (Mega-Caps)
-    if args.index in ["SP500", "SPY"]:
-        target_universe = "SP500"
-        index_ticker = "SPY"
-        priority_leaders = ["AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "BRK B", "LLY", "AVGO", "JPM", "TSLA"]
-    elif args.index == "QQQ":
-        target_universe = "QQQ"
-        index_ticker = "QQQ"
-        priority_leaders = ["AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA", "AVGO", "COST", "ASML", "AMD"]
-    else:  # HSI
-        target_universe = "HSI"
-        index_ticker = "2800"
-        priority_leaders = ["700", "9988", "5", "939", "1299", "1398", "941", "388", "1810", "3988"]
-
-    available_symbols = [s for s in priority_leaders if storage.has_data(s)]
-    if len(available_symbols) < 5:
-        all_symbols = um.get_symbols(indices=[target_universe])
-        available_symbols = [s for s in all_symbols if storage.has_data(s)][:args.top_n]
-
-    symbols = available_symbols[:args.top_n]
     closes, _ = pipeline.build_feature_panels(symbols + [index_ticker], bar_size="1_day")
+    real_ivs = load_real_iv_panels(symbols + [index_ticker])
 
-    if closes.empty or index_ticker not in closes.columns:
-        print(f"Loading local data... Generating demonstration panel for {args.index} dispersion...")
-        dates = pd.date_range(end=pd.Timestamp.now(), periods=252, freq="B")
-        np.random.seed(42)
-        idx_ret = np.random.normal(0.0004, 0.012, 252)
-        closes = pd.DataFrame(index=dates)
-        closes[index_ticker] = 450.0 * np.exp(np.cumsum(idx_ret))
-        for s in symbols:
-            idio = np.random.normal(0.0, 0.018, 252)
-            closes[s] = 150.0 * np.exp(np.cumsum(0.8 * idx_ret + idio))
+    if real_ivs.empty or index_ticker not in real_ivs.columns:
+        print(f"[ERROR] Real option IV bars missing for {args.index}. Run `data.sync_options --index {args.index}` first.")
+        return
 
+    # Align dates
+    common_dates = closes.index.intersection(real_ivs.index)
+    closes = closes.loc[common_dates]
+    real_ivs = real_ivs.loc[common_dates]
     returns = closes.pct_change().dropna(how="all")
-    constituent_returns = returns[symbols]
 
-    # Constituent weights (approximated by market-cap/equal weight for top constituents)
-    weights = pd.Series(1.0 / len(symbols), index=symbols)
 
-    # Historical Implied Volatility Proxy (1-month realized as proxy)
-    constituent_ivs = constituent_returns.rolling(21).std().iloc[-1] * np.sqrt(252)
-    index_iv = float(returns[index_ticker].rolling(21).std().iloc[-1] * np.sqrt(252))
+    print(f"=== {args.index} DISPERSION P&L BACKTEST ===")
+    print(f"Index Asset: {index_ticker} | Basket: Top {len(symbols)} Stocks | Entry Threshold: +{args.min_spread:.1%} Spread")
 
-    # Market premium: index implied vol typically trades rich by +2.5 to 4.0 vol points
-    index_iv_market = index_iv + 0.035
+    caps_file = Path("data/universe/market_caps.parquet")
+    if caps_file.exists():
+        caps_df = pd.read_parquet(caps_file)
+        raw_weights = caps_df["market_cap"].reindex(symbols).fillna(1.0)
+        weights = raw_weights / raw_weights.sum()
+    else:
+        weights = pd.Series(1.0 / len(symbols), index=symbols)
+    daily_pnl_history = []
+    trade_events = 0
+    tau = 30.0 / 365.0
+    dt = 1.0 / 252.0
 
-    print("=" * 85)
-    print(f"=== CHROMA: {args.index} EQUITY INDEX DISPERSION & CORRELATION ARBITRAGE ===")
-    print(f"Index Asset: {index_ticker} | Constituent Basket: Top {len(symbols)} Stocks | Window: {args.window}d")
-    print("=" * 85)
+    print("Simulating rolling delta-hedged straddle gamma/theta cash flows...")
+    for t_idx in range(63, len(returns) - 1):
+        curr_date = returns.index[t_idx]
+        idx_iv = float(real_ivs[index_ticker].iloc[t_idx])
+        const_ivs = real_ivs[symbols].iloc[t_idx]
 
-    # Calculate CBOE Implied vs Realized Correlation
-    metrics = DispersionCorrelationModel.evaluate_correlation_opportunity(
-        index_iv=index_iv_market,
-        constituent_ivs=constituent_ivs,
-        constituent_weights=weights,
-        constituent_returns=constituent_returns,
-        window=args.window,
-    )
+        # Check Correlation Spread Signal
+        ret_window = returns[symbols].iloc[t_idx - 63 : t_idx]
+        metrics = DispersionCorrelationModel.evaluate_correlation_opportunity(
+            index_iv=idx_iv,
+            constituent_ivs=const_ivs,
+            constituent_weights=weights,
+            constituent_returns=ret_window,
+            window=63,
+        )
 
-    print("\n--- 1. CORRELATION RISK PREMIUM METRICS ---")
-    print(f"Index Implied Volatility:        {metrics.index_implied_vol:.1%}")
-    print(f"Weighted Constituent Volatility:  {metrics.weighted_constituent_vol:.1%}")
-    print(f"CBOE Implied Correlation (ρ_imp): {metrics.implied_correlation:.1%}")
-    print(f"Realized Correlation (ρ_real):    {metrics.realized_correlation:.1%}")
-    print(f"Correlation Spread (Alpha):       {metrics.correlation_spread:+.1%} (ρ_imp - ρ_real)")
+        if metrics.correlation_spread >= args.min_spread:
+            trade_events += 1
+            # Next-day realized price moves
+            next_idx_ret = returns[index_ticker].iloc[t_idx + 1]
+            next_const_rets = returns[symbols].iloc[t_idx + 1]
 
-    # Generate Vega-Neutral Trade Structure
-    engine = DispersionTradeEngine(target_index_contracts=10.0, max_constituent_count=args.top_n)
-    latest_spots = closes.iloc[-1]
+            # Index Leg: Short Straddle (Loss from Gamma Move, Gain from Theta Decay)
+            # Gamma ~= 2 * N(d1) / (S * sigma * sqrt(tau)) ~= 0.80 / (S * sigma * sqrt(tau))
+            idx_gamma_dollar = 0.80 / (idx_iv * math.sqrt(tau))
+            idx_theta_dollar = 0.40 * idx_iv / math.sqrt(tau) * dt
+            index_pnl = - (0.5 * idx_gamma_dollar * (next_idx_ret ** 2)) + idx_theta_dollar
 
-    structure = engine.build_dispersion_structure(
-        index_symbol=index_ticker,
-        index_spot=float(latest_spots[index_ticker]),
-        index_iv=metrics.index_implied_vol,
-        tau_days=30.0,
-        constituent_spots=latest_spots[symbols],
-        constituent_ivs=constituent_ivs,
-        constituent_weights=weights,
-        correlation_spread=metrics.correlation_spread,
-    )
+            # Constituent Basket: Long Straddles (Gain from Gamma Move, Loss from Theta Decay)
+            basket_pnl = 0.0
+            for s in symbols:
+                s_iv = float(const_ivs[s])
+                s_ret = float(next_const_rets[s])
+                s_gamma_dollar = 0.80 / (s_iv * math.sqrt(tau))
+                s_theta_dollar = 0.40 * s_iv / math.sqrt(tau) * dt
+                basket_pnl += weights[s] * ((0.5 * s_gamma_dollar * (s_ret ** 2)) - s_theta_dollar)
 
-    print("\n--- 2. EXECUTABLE DISPERSION STRUCTURE (30-Day Expiry) ---")
-    idx_leg = structure.index_leg
-    print(f"SHORT INDEX LEG: {idx_leg.side} {idx_leg.contracts:.1f}x {idx_leg.symbol} Straddles @ ${idx_leg.straddle_price:,.2f} | Vega: -${idx_leg.dollar_vega:,.2f}/vol")
-    print(f"Initial Required Margin: ${structure.initial_margin_usd:,.2f}")
-    print("\nLONG CONSTITUENT BASKET (VEGA-MATCHED):")
-    print(f"{'Ticker':<10} {'Spot Px':<10} {'Contracts':<11} {'Straddle Px':<13} {'Dollar Vega ($/vol)':<20}")
-    print("-" * 68)
+            net_day_pnl = basket_pnl + index_pnl
+            daily_pnl_history.append({"date": curr_date, "pnl": net_day_pnl})
 
-    for leg in structure.constituent_legs:
-        print(f"{leg.symbol:<10} ${leg.spot_price:<9.2f} {leg.contracts:<11.2f} ${leg.straddle_price:<12.2f} +${leg.dollar_vega:<19.2f}")
+    pnl_df = pd.DataFrame(daily_pnl_history).set_index("date")
+    ret_series = pnl_df["pnl"]
 
-    print("-" * 68)
-    print(f"Net Portfolio Dollar Vega: ${structure.net_dollar_vega:+,.2f}/vol (Vega Neutral)")
-    print(f"Strategy Edge: When constituent stocks diverge and correlation collapses, long basket prints while short index decays.")
+    mean_ann = ret_series.mean() * 252.0
+    vol_ann = ret_series.std() * math.sqrt(252.0)
+    sharpe = mean_ann / vol_ann if vol_ann > 0 else 0.0
+    cum_pnl = ret_series.cumsum()
+    max_dd = (cum_pnl - cum_pnl.cummax()).min()
+
+    print("\n--- DISPERSION P&L BACKTEST RESULTS (NET OF GAMMA/THETA DRAG) ---")
+    print(f"Annualized Return Proxy:    {mean_ann:+,.2%}")
+    print(f"Annualized Volatility:      {vol_ann:,.2%}")
+    print(f"Dispersion Sharpe Ratio:    {sharpe:+,.2f}")
+    print(f"Maximum Drawdown:           {max_dd:,.2%}")
+    print(f"Active Trading Days:        {len(ret_series)} / {len(returns) - 64}")
 
 
 if __name__ == "__main__":

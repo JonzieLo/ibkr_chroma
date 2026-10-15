@@ -142,6 +142,8 @@ class UniverseManager:
         indices: Optional[List[str]] = None,
         sectors: Optional[List[str]] = None,
         top_n: Optional[int] = None,
+        sort_by_market_cap: bool = True,
+        caps_path: str = "data/universe/market_caps.parquet",
     ) -> List[EquityMetadata]:
         df = self.fetch_all_constituents()
 
@@ -149,6 +151,16 @@ class UniverseManager:
             df = df[df["index"].isin(indices)]
         if sectors:
             df = df[df["sector"].isin(sectors)]
+
+        caps_file = Path(caps_path)
+        if sort_by_market_cap and caps_file.exists():
+            try:
+                caps_df = pd.read_parquet(caps_file)
+                df = df.set_index("symbol").join(caps_df["market_cap"], how="left").reset_index()
+                df["market_cap"] = df["market_cap"].fillna(0.0)
+                df = df.sort_values(by="market_cap", ascending=False)
+            except Exception:
+                pass
         if top_n:
             df = df.iloc[:top_n]
 
@@ -174,3 +186,25 @@ class UniverseManager:
     
     def get_benchmark_etf(self, index_name: str) -> Optional[EquityMetadata]:
         return INDEX_BENCHMARKS.get(index_name.upper())
+
+    def get_top_constituents(
+        self,
+        index: str,
+        top_n: int = 10,
+        by: str = "market_cap",
+        caps_path: str = "data/universe/market_caps.parquet",
+    ) -> List[EquityMetadata]:
+        universe = self.get_universe(indices=[index])
+        if not universe:
+            return []
+
+        caps_file = Path(caps_path)
+        if by == "market_cap" and caps_file.exists():
+            caps_df = pd.read_parquet(caps_file)
+            scored_universe = []
+            for meta in universe:
+                cap = float(caps_df["market_cap"].get(meta.symbol, 0.0))
+                scored_universe.append((meta, cap))
+            scored_universe.sort(key=lambda item: item[1], reverse=True)
+            return [meta for meta, _ in scored_universe[:top_n]]
+        return universe[:top_n]
