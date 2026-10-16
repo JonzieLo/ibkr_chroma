@@ -14,6 +14,7 @@ from ibkr_chroma.data.universe import UniverseManager
 from ibkr_chroma.execution.position_sync import PositionSynchronizer
 from ibkr_chroma.execution.router import ExecutionRouter
 from ibkr_chroma.statarb.ou_process import OUProcessModel
+from ibkr_chroma.statarb.ou_process import ActiveStatArbPosition
 from ibkr_chroma.statarb.pca_factors import SectorETFFactorModel
 
 
@@ -69,6 +70,20 @@ async def main():
         s_scores = ou_engine.calibrate_universe(residuals)
         latest_date = stock_prices.index[-1]
         latest_prices = stock_prices.iloc[-1]
+
+        for sym, qty in account.current_positions.items():
+            if abs(qty) > 0 and sym in s_scores:
+                side = 1 if qty > 0 else -1
+                ou_engine.open_positions[sym] = ActiveStatArbPosition(
+                    ticker=sym,
+                    entry_date=latest_date,
+                    side=side,
+                    entry_s_score=s_scores[sym].centered_s_score,
+                    entry_price=float(latest_prices.get(sym, 1.0)),
+                    current_shares=float(abs(qty)),
+                    days_held=1,
+                )
+
         target_weights = ou_engine.update_positions(latest_date, latest_prices, s_scores)
 
         # Generate Orders
